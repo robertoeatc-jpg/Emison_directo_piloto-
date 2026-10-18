@@ -35,13 +35,13 @@ p{margin:6px 0;color:#9db3ae}
  if(!('geolocation' in navigator)){say('Este navegador no permite leer el GPS.');setEs('Sin GPS');return}
  btn.disabled=false;
  function send(){
-  if(!running||!last||last.sent)return;var p=last;p.sent=true;
-  var body={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),a:Math.round(p.a),t:p.t};
+  if(!running||!last)return;var p=last;
+  var body={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),a:Math.round(p.a),t:Date.now()};
   if(p.v!=null&&isFinite(p.v))body.v=+p.v.toFixed(2);if(p.h!=null&&isFinite(p.h))body.h=Math.round(p.h);
   fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){
    if(!r.ok)throw new Error('HTTP '+r.status);sent++;$('#ok').textContent=sent;setEs('Emitiendo');say('')
   }).catch(function(e){setEs('Sin conexión');say('No se pudo enviar ('+(e&&e.message||'error')+'). Se sigue intentando con la posición más reciente.')})}
- function onPos(pos){var c=pos.coords;last={lat:c.latitude,lon:c.longitude,a:c.accuracy,v:c.speed,h:c.heading,t:pos.timestamp,sent:false};
+ function onPos(pos){var c=pos.coords;last={lat:c.latitude,lon:c.longitude,a:c.accuracy,v:c.speed,h:c.heading};
   $('#v').textContent=c.speed!=null&&isFinite(c.speed)?Math.round(c.speed*3.6)+' km/h':'—';$('#a').textContent=Math.round(c.accuracy)+' m'}
  function onErr(e){var t={1:'Permiso de ubicación denegado. Actívalo en los ajustes del navegador para esta página.',2:'No se pudo obtener la posición. ¿Hay señal GPS?',3:'El GPS tarda en responder.'}[e.code]||'Error de GPS.';say(t);if(e.code===1){stop(true)}else setEs('Buscando GPS…')}
  function getWake(){try{if(navigator.wakeLock&&running)navigator.wakeLock.request('screen').then(function(l){wake=l}).catch(function(){})}catch(e){}}
