@@ -15,12 +15,17 @@ p{margin:6px 0;color:#9db3ae}
 .g small{display:block;font-size:12px;color:#9db3ae}
 .g b{font-size:20px}
 #msg{min-height:3em;color:#ffd60a}
+#pop{position:fixed;left:50%;top:14px;transform:translateX(-50%);min-width:70%;max-width:94%;padding:14px 18px;border-radius:18px;text-align:center;pointer-events:none;display:none;z-index:9;box-shadow:0 6px 30px rgba(0,0,0,.6)}
+#pop b{display:block;font-size:44px;line-height:1.1}
+#pop span{display:block;font-size:22px}
+#pop.mejor{background:#8e2de2;color:#fff}#pop.peor{background:#d62828;color:#000}#pop.igual,#pop.base{background:#3a4a47;color:#fff}
 </style></head><body><main>
 <h1>📡 Forwin GPS · Piloto</h1>
 <p id="sub">Pulsa para empezar a emitir tu posición.</p>
 <button id="btn" disabled>Empezar a emitir</button>
 <div class="g"><div><small>Estado</small><b id="es">Parado</b></div><div><small>Enviados</small><b id="ok">0</b></div><div><small>Velocidad</small><b id="v">—</b></div><div><small>Precisión</small><b id="a">—</b></div></div>
 <p id="msg"></p>
+<div id="pop" aria-live="assertive"></div>
 <p>Deja esta página abierta, en primer plano y con la pantalla encendida. Necesita datos móviles.</p>
 </main>
 <script>
@@ -28,7 +33,7 @@ p{margin:6px 0;color:#9db3ae}
  var q=new URLSearchParams(location.search),code=q.get('c')||'',db=(q.get('d')||'').replace(/\/+$/,''),
   $=function(s){return document.querySelector(s)};
  var okDb=/^https:\/\/[a-z0-9-]+(-default-rtdb)?(\.[a-z0-9-]+)?\.(firebasedatabase\.app|firebaseio\.com)$/i.test(db),okCode=/^[a-z0-9]{6,32}$/i.test(code);
- var btn=$('#btn'),msg=$('#msg'),watch=null,wake=null,timer=null,last=null,lastSent=0,sent=0,running=false,url=okDb&&okCode?db+'/s/'+code+'.json':'';
+ var btn=$('#btn'),msg=$('#msg'),watch=null,wake=null,timer=null,last=null,lastSent=0,sent=0,running=false,es=null,popT=null,url=okDb&&okCode?db+'/s/'+code+'.json':'',urlM=okDb&&okCode?db+'/m/'+code+'.json':'';
  function say(t){msg.textContent=t||''}
  function setEs(t){$('#es').textContent=t}
  if(!url){say('Este enlace no es válido. Pide al receptor que te envíe el enlace de nuevo.');setEs('Enlace no válido');return}
@@ -36,25 +41,28 @@ p{margin:6px 0;color:#9db3ae}
  btn.disabled=false;
  function send(){
   if(!running||!last)return;var p=last;
-  var body={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),a:Math.round(p.a),t:Date.now()};
+  var body={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),a:Math.round(p.a),t:Date.now(),g:p.g};
   if(p.v!=null&&isFinite(p.v))body.v=+p.v.toFixed(2);if(p.h!=null&&isFinite(p.h))body.h=Math.round(p.h);
   fetch(url,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){
    if(!r.ok)throw new Error('HTTP '+r.status);sent++;$('#ok').textContent=sent;setEs('Emitiendo');say('')
   }).catch(function(e){setEs('Sin conexión');say('No se pudo enviar ('+(e&&e.message||'error')+'). Se sigue intentando con la posición más reciente.')})}
- function onPos(pos){var c=pos.coords;last={lat:c.latitude,lon:c.longitude,a:c.accuracy,v:c.speed,h:c.heading};
+ function onPos(pos){var c=pos.coords;last={lat:c.latitude,lon:c.longitude,a:c.accuracy,v:c.speed,h:c.heading,g:pos.timestamp};
   $('#v').textContent=c.speed!=null&&isFinite(c.speed)?Math.round(c.speed*3.6)+' km/h':'—';$('#a').textContent=Math.round(c.accuracy)+' m'}
  function onErr(e){var t={1:'Permiso de ubicación denegado. Actívalo en los ajustes del navegador para esta página.',2:'No se pudo obtener la posición. ¿Hay señal GPS?',3:'El GPS tarda en responder.'}[e.code]||'Error de GPS.';say(t);if(e.code===1){stop(true)}else setEs('Buscando GPS…')}
+ function fmt(x){var a=Math.abs(x),m=Math.floor(a/60);return m?m+':'+(a-m*60).toFixed(2).padStart(5,'0'):a.toFixed(2)}
+ function muestra(m){if(!m||typeof m!=='object'||!isFinite(+m.ts)||Math.abs(Date.now()-m.ts)>15000)return;var p=$('#pop');p.className=m.c||'base';var d=m.d!=null&&isFinite(+m.d)?(m.d>=0?'+':'\u2212')+Math.abs(m.d).toFixed(2):'';p.innerHTML='<b>'+String(m.n||'')+' '+fmt(+m.s)+'</b><span>'+d+'</span>';p.style.display='block';clearTimeout(popT);popT=setTimeout(function(){p.style.display='none'},4000);try{navigator.vibrate&&navigator.vibrate(120)}catch(e){}}
+ function escucha(){try{es=new EventSource(urlM);es.addEventListener('put',function(e){try{var m=JSON.parse(e.data);muestra(m.data)}catch(x){}})}catch(e){}}
  function getWake(){try{if(navigator.wakeLock&&running)navigator.wakeLock.request('screen').then(function(l){wake=l}).catch(function(){})}catch(e){}}
  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')getWake()});
  function start(){
   running=true;sent=0;$('#ok').textContent='0';last=null;btn.textContent='Parar de emitir';btn.className='on';$('#sub').textContent='Emitiendo tu posición al receptor.';setEs('Buscando GPS…');say('');
-  watch=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+  watch=navigator.geolocation.watchPosition(onPos,onErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});escucha();
   timer=setInterval(send,1000);getWake()}
  function stop(silent){
   running=false;if(watch!==null){navigator.geolocation.clearWatch(watch);watch=null}clearInterval(timer);timer=null;
   if(wake){try{wake.release()}catch(e){}wake=null}
   btn.textContent='Empezar a emitir';btn.className='';$('#sub').textContent='Pulsa para empezar a emitir tu posición.';setEs('Parado');
-  fetch(url,{method:'DELETE'}).catch(function(){});if(!silent)say('')}
+  if(es){es.close();es=null}$('#pop').style.display='none';fetch(url,{method:'DELETE'}).catch(function(){});fetch(urlM,{method:'DELETE'}).catch(function(){});if(!silent)say('')}
  btn.onclick=function(){running?stop():start()};
 })();
 </script></body></html>
