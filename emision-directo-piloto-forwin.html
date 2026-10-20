@@ -19,11 +19,12 @@ p{margin:6px 0;color:#9db3ae}
 #pop.on{display:flex}
 #pop .d{font-size:30vw;font-weight:900;line-height:.9;letter-spacing:-.04em;font-variant-numeric:tabular-nums;white-space:nowrap}
 #pop .n{font-size:12vw;font-weight:900;margin-top:1vh;line-height:1;white-space:nowrap}
-#mb{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}#mb button{min-height:92px;border:4px solid transparent;border-radius:16px;font-size:22px;font-weight:900;color:#fff;background:#26302e}#mb button.sel{border-color:#fff}#mb button.sel:before{content:'\2713 '}#mb .bien{background:#1f8f4e}#mb .sos{background:#d62828}#mb .accidente{background:#e36414}#mb .averia{background:#ffb703;color:#000}
+#who{margin:8px 0 2px;font-size:min(9vw,40px);font-weight:900;line-height:1.1;color:#ffd60a;word-break:break-word}#mb{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}#mb button{min-height:92px;border:4px solid transparent;border-radius:16px;font-size:22px;font-weight:900;color:#fff;background:#26302e}#mb button.sel{border-color:#fff}#mb button.sel:before{content:'\2713 '}#mb .bien{background:#1f8f4e}#mb .sos{background:#d62828}#mb .accidente{background:#e36414}#mb .averia{background:#ffb703;color:#000}
 #stp{position:fixed;inset:0;display:none;z-index:8;background:#0e1716;flex-direction:column;padding:2vmin;gap:2vmin}#stp.on{display:flex}#stp h2{margin:0;text-align:center;font-size:min(7vw,7vh);color:#ffd60a}#stp button{flex:1;border:4px solid transparent;border-radius:18px;font-size:min(10vw,9vh);font-weight:900;color:#fff;background:#26302e}#stp button.sel{border-color:#fff;box-shadow:0 0 0 4px #000 inset}#stp button.sel:before{content:'\2713 '}#stp .bien{background:#1f8f4e}#stp .sos{background:#d62828}#stp .accidente{background:#e36414}#stp .averia{background:#ffb703;color:#000}#stp small{text-align:center;color:#9db3ae;font-size:min(4.5vw,4vh)}
 #pop.mejor{background:#8e2de2;color:#fff}#pop.peor{background:#d62828;color:#000}#pop.igual,#pop.base{background:#26302e;color:#fff}
 </style></head><body><main>
 <h1>📡 Forwin GPS · Piloto</h1>
+<div id="who">Dorsal sin asignar</div>
 <p id="sub">Pulsa para empezar a emitir tu posición.</p>
 <button id="btn" disabled>Empezar a emitir</button>
 <div id="mb"><button class="bien" data-k="bien">ESTOY BIEN</button><button class="sos" data-k="sos">SOS</button><button class="accidente" data-k="accidente">ACCIDENTE</button><button class="averia" data-k="averia">AVERÍA</button></div>
@@ -38,12 +39,15 @@ p{margin:6px 0;color:#9db3ae}
  var q=new URLSearchParams(location.search),code=q.get('c')||'',db=(q.get('d')||'').replace(/\/+$/,''),
   $=function(s){return document.querySelector(s)};
  var okDb=/^https:\/\/[a-z0-9-]+(-default-rtdb)?(\.[a-z0-9-]+)?\.(firebasedatabase\.app|firebaseio\.com)$/i.test(db),okCode=/^[a-z0-9]{6,32}$/i.test(code);
- var btn=$('#btn'),msg=$('#msg'),watch=null,wake=null,timer=null,last=null,lastSent=0,sent=0,running=false,es=null,popT=null,url=okDb&&okCode?db+'/s/'+code+'.json':'',urlM=okDb&&okCode?db+'/m/'+code+'.json':'',urlI=okDb&&okCode?db+'/i/'+code+'.json':'',sel={},stpOn=false;
+ var btn=$('#btn'),msg=$('#msg'),watch=null,wake=null,timer=null,last=null,lastSent=0,sent=0,running=false,es=null,popT=null,url=okDb&&okCode?db+'/s/'+code+'.json':'',urlM=okDb&&okCode?db+'/m/'+code+'.json':'',urlI=okDb&&okCode?db+'/i/'+code+'.json':'',urlN=okDb&&okCode?db+'/n/'+code+'.json':'',sel={},stpOn=false;
  function say(t){msg.textContent=t||''}
  function setEs(t){$('#es').textContent=t}
  if(!url){say('Este enlace no es válido. Pide al receptor que te envíe el enlace de nuevo.');setEs('Enlace no válido');return}
  if(!('geolocation' in navigator)){say('Este navegador no permite leer el GPS.');setEs('Sin GPS');return}
  btn.disabled=false;
+ var NM={};function who(){var d=String(NM.d||'').trim(),n=String(NM.n||'').trim();$('#who').textContent=(d||n)?('DORSAL '+(d||'?')+(n?' \u00b7 '+n:'')):'Dorsal sin asignar';document.title='Forwin GPS \u00b7 '+((d?'Dorsal '+d:'Piloto'))}
+ function leeN(){try{var e=new EventSource(urlN);e.addEventListener('put',function(ev){try{var m=JSON.parse(ev.data);if(m.path==='/'||m.path===''){NM=m.data&&typeof m.data==='object'?m.data:{}}else{NM[m.path.replace(/\//g,'')]=m.data}who()}catch(x){}});e.addEventListener('patch',function(ev){try{var m=JSON.parse(ev.data);if(m.data&&typeof m.data==='object'){for(var q in m.data)NM[q]=m.data[q];who()}}catch(x){}})}catch(x){}}
+ leeN();
  function send(){
   if(!running||!last)return;var p=last;
   var body={lat:+p.lat.toFixed(6),lon:+p.lon.toFixed(6),a:Math.round(p.a),t:Date.now(),g:p.g};
