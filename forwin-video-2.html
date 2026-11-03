@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Forwin · Vídeo en directo</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100dvh;background:#070a0a;color:#e8f1ef;font:16px/1.45 system-ui,Arial,sans-serif;padding:14px}
+h1{font-size:1.2rem;color:#00f5e4;margin:6px 0 12px}
+.card{background:#0f1414;border:2px solid #00f5e4;border-radius:16px;padding:16px;max-width:560px;margin:0 auto}
+label{display:block;margin:10px 0 4px;color:#9aa6a4;font-size:.85rem}
+input{width:100%;padding:12px;border-radius:10px;border:1px solid #8f1f1f;background:#3a1010;color:#fff;font:inherit}
+button{width:100%;margin-top:12px;padding:14px;border:0;border-radius:12px;font:700 1rem system-ui;cursor:pointer}
+.pri{background:#00f5e4;color:#001514}.dng{background:#d62828;color:#fff}.sec{background:#26302e;color:#fff}
+#pv{width:100%;margin-top:12px;border-radius:12px;background:#000;aspect-ratio:16/9;object-fit:cover}
+#gps{margin-top:14px;padding-top:6px;border-top:1px solid #26302e}
+#gp{margin:8px 0 0;padding:8px;border-radius:10px;background:#18221f;font-size:.9rem;white-space:pre-line}
+#st{margin:12px 0 0;padding:10px;border-radius:10px;background:#18221f;white-space:pre-line}
+.ok{color:#7bed9f}.wa{color:#ffd60a}.er{color:#ff6b6b}
+</style></head><body>
+<div class="card">
+<h1>📹 Forwin · Emitir vídeo desde la carrera</h1>
+<div id="v0">
+<label for="nm">Tu nombre</label><input id="nm" type="text" maxlength="40" autocomplete="name" placeholder="Nombre">
+<button class="pri" id="go">Solicitar emitir</button>
+</div>
+<video id="pv" autoplay muted playsinline hidden></video>
+<div id="gps"><label for="lg">Lugar donde estás (ej. Cruce Sta. Mariña)</label><input id="lg" type="text" maxlength="60" autocomplete="off" placeholder="Lugar">
+<button class="sec" id="fix">📍 Fijar posición (3 lecturas GPS)</button><div id="gp" class="wa">Sin posición fijada. Ponte donde vas a grabar y pulsa «Fijar posición».</div></div>
+<div id="dg" style="margin-top:10px;font-size:.75rem;color:#7d8987"></div>
+<div id="st" class="wa">Escribe tu nombre y pulsa «Solicitar emitir». El equipo debe aceptar tu petición.</div>
+<button class="dng" id="stop" hidden>Terminar emisión</button>
+<button class="sec" id="rot" hidden>Cambiar cámara</button>
+</div>
+<script>
+(function(){
+'use strict';
+/* ===== Configuración de la primera versión ===== */
+var AUDIO={echoCancellation:false,noiseSuppression:false,autoGainControl:false}; /* sonido del motor: sin filtros de voz del móvil */
+var ABR=64;                            /* kbps máx. del audio (Opus) */
+var ICE=[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]; /* solo STUN gratuito; aquí se añadiría TURN */
+var MAXKBPS=800,MAXFPS=24;
+var q=new URLSearchParams(location.search),code=q.get('c')||'',db=(q.get('d')||'').replace(/\/+$/,'');
+var $=function(s){return document.querySelector(s)};
+var sid='s'+Math.random().toString(36).slice(2,10),pc=null,stream=null,facing='environment',timer=null,state='idle',lastAns=null,icSeen={},icN=0,wl=null,done=false;
+function st(t,c){var e=$('#st');e.textContent=t;e.className=c||''}
+function url(p){return db+'/w/'+encodeURIComponent(code)+p+'.json'}
+function put(p,b){return fetch(url(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r})}
+function del(p){return fetch(url(p),{method:'DELETE'}).catch(function(){})}
+function get(p){return fetch(url(p),{cache:'no-store'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})}
+$('#dg').textContent='Hueco …'+code.slice(-5)+' · BD '+db.replace(/^https?:\/\//,'').split('.')[0];
+if(!/^https:\/\//.test(db)||!code){st('Enlace no válido. Pide un enlace nuevo al equipo.','er');$('#go').disabled=true;$('#fix').disabled=true}
+try{var sv=localStorage.getItem('fw-vid-nm');if(sv)$('#nm').value=sv;var sl=localStorage.getItem('fw-vid-lg');if(sl)$('#lg').value=sl}catch(e){}
+
+
+/* ===== Fijar posición: 3 lecturas GPS seguidas, se envía la media al panel (nodo /w/{código}/gps) ===== */
+function gp(t,c){var e=$('#gp');e.textContent=t;e.className=c||''}
+function lee(){return new Promise(function(ok,ko){navigator.geolocation.getCurrentPosition(function(p){ok(p.coords)},ko,{enableHighAccuracy:true,maximumAge:0,timeout:20000})})}
+$('#fix').onclick=function(){
+ if(!navigator.geolocation){gp('Este navegador no permite leer el GPS.','er');return}
+ var nm=$('#nm').value.trim(),lg=$('#lg').value.trim();
+ if(!nm){gp('Escribe tu nombre (arriba) antes de fijar la posición.','er');return}
+ if(!lg){gp('Escribe el lugar donde estás.','er');return}
+ try{localStorage.setItem('fw-vid-nm',nm);localStorage.setItem('fw-vid-lg',lg)}catch(e){}
+ $('#fix').disabled=true;var a=[];
+ (function sig(i){
+  gp('Leyendo GPS… '+(i+1)+' de 3','wa');
+  lee().then(function(c){a.push(c);if(i<2){setTimeout(function(){sig(i+1)},1000);return}
+   var la=0,lo=0,ac=0;a.forEach(function(c){la+=c.latitude;lo+=c.longitude;ac+=c.accuracy});la/=3;lo/=3;ac/=3;
+   return put('/gps',{lat:+la.toFixed(7),lon:+lo.toFixed(7),acc:Math.round(ac),n:3,nombre:nm,lugar:lg,ts:Date.now()}).then(function(){
+    gp('✔ Posición fijada y enviada (precisión ±'+Math.round(ac)+' m).'+(ac>30?'\nPrecisión baja: ponte a cielo abierto y repite.':''),ac>30?'wa':'ok');$('#fix').disabled=false})
+  }).catch(function(e){$('#fix').disabled=false;gp(e&&e.code===1?'Permiso de ubicación denegado. Actívalo en los ajustes del navegador para esta página.':e&&e.code?'No se pudo leer el GPS ('+(e.message||e.code)+'). Prueba al aire libre.':'No se pudo enviar la posición ('+((e&&e.message)||'error')+'). Comprueba la conexión.','er')})
+ })(0)};
+
+function cleanup(msg,cls){
+ done=true;clearInterval(timer);timer=null;
+ try{if(pc)pc.close()}catch(e){}pc=null;
+ if(stream){stream.getTracks().forEach(function(t){t.stop()});stream=null}
+ try{if(wl)wl.release()}catch(e){}
+ $('#pv').hidden=true;$('#stop').hidden=true;$('#rot').hidden=true;$('#v0').hidden=false;$('#go').disabled=false;state='idle';
+ if(msg)st(msg,cls||'')}
+
+$('#go').onclick=function(){
+ var n=$('#nm').value.trim();if(!n){st('Escribe tu nombre.','er');return}
+ try{localStorage.setItem('fw-vid-nm',n)}catch(e){}
+ done=false;sid='s'+Math.random().toString(36).slice(2,10);icSeen={};icN=0;lastAns=null;state='wait';
+ $('#go').disabled=true;st('Enviando solicitud…','wa');
+ put('/req',{sid:sid,n:n,ts:Date.now()}).then(function(){
+  st('Solicitud enviada. Esperando a que el equipo la acepte…\nMantén esta pantalla abierta.','wa');
+  clearInterval(timer);timer=setInterval(poll,1000);
+  try{if(navigator.wakeLock)navigator.wakeLock.request('screen').then(function(w){wl=w}).catch(function(){})}catch(e){}
+ }).catch(function(e){cleanup('No se pudo enviar la solicitud ('+(e.message||'error')+'). Comprueba la conexión.','er')})};
+
+$('#stop').onclick=function(){put('/req',{sid:sid,n:$('#nm').value.trim(),ts:Date.now(),end:1}).catch(function(){});cleanup('Emisión terminada.','wa')};
+$('#rot').onclick=function(){if(!stream||!pc)return;var nf=facing==='environment'?'user':'environment';
+ function cam(f){return navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:f},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:MAXFPS}},audio:false})}
+ var vs=pc.getSenders().filter(function(x){return x.track&&x.track.kind==='video'})[0];if(!vs)return;
+ function usa(ns,f){var nt=ns.getVideoTracks()[0];return vs.replaceTrack(nt).then(function(){stream.getVideoTracks().forEach(function(t){stream.removeTrack(t)});stream.addTrack(nt);facing=f;$('#pv').srcObject=stream})}
+ stream.getVideoTracks().forEach(function(t){t.stop()}); /* el móvil abre una sola cámara a la vez: se libera la actual antes de pedir la otra */
+ cam(nf).then(function(ns){return usa(ns,nf)}).catch(function(){
+  return cam(facing).then(function(ns){return usa(ns,facing)}).then(function(){st('No se pudo cambiar de cámara.','er')})
+ }).catch(function(){st('Se perdió la cámara. Termina y vuelve a solicitar.','er')})};
+
+function startMedia(){
+ state='media';st('Aceptada. Abriendo la cámara (acepta el permiso)…','wa');
+ var turn=get('/ice').then(function(o){var a=o&&o.j?JSON.parse(o.j):[];return Array.isArray(a)?a:[]}).catch(function(){return[]}); /* servidor TURN que publica el panel (si lo hay) */
+ navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:MAXFPS}},audio:AUDIO}).then(function(ms){
+  if(done){ms.getTracks().forEach(function(t){t.stop()});return}
+  stream=ms;$('#pv').srcObject=ms;$('#pv').hidden=false;$('#v0').hidden=true;$('#stop').hidden=false;$('#rot').hidden=false;
+  return turn.then(function(extra){
+  if(done)return;
+  pc=new RTCPeerConnection({iceServers:ICE.concat(extra)});
+  ms.getTracks().forEach(function(t){pc.addTrack(t,ms)});
+  pc.onicecandidate=function(e){if(e.candidate){put('/icA/'+(icN++),{sid:sid,c:e.candidate.toJSON()}).catch(function(){})}};
+  pc.onconnectionstatechange=function(){var s=pc&&pc.connectionState;
+   if(s==='connected'){state='live';st('● EMITIENDO EN DIRECTO (imagen y sonido)\nGira el móvil en horizontal y apúntalo a la carrera.','ok');shape()}
+   else if(s==='connecting')st('Conectando con el panel…','wa');
+   else if(s==='disconnected')st('Señal perdida. Intentando recuperar…','wa');
+   else if(s==='failed')st('No se pudo conectar con el panel (la red bloquea la conexión directa y no hay servidor TURN que valga). Avisa al equipo.','er')};
+  return pc.createOffer().then(function(o){return pc.setLocalDescription(o)}).then(function(){return put('/offer',{sid:sid,sdp:pc.localDescription.sdp,type:pc.localDescription.type})}).then(function(){state='offered';st('Conectando con el panel…','wa')});
+  });
+ }).catch(function(e){cleanup('No se pudo abrir la cámara y el micrófono: '+(e.message||e.name)+'. Permite el acceso a los dos y vuelve a solicitar.','er')})}
+
+function shape(){try{pc.getSenders().forEach(function(s){if(!s.track)return;var p=s.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];if(s.track.kind==='video'){p.encodings[0].maxBitrate=MAXKBPS*1000;p.encodings[0].maxFramerate=MAXFPS}else p.encodings[0].maxBitrate=ABR*1000;s.setParameters(p).catch(function(){})})}catch(e){}}
+
+function poll(){
+ if(done)return;
+ var lv=(state==='live');
+ get(lv?'/st':'').then(function(d){
+  if(done||!d)return;
+  var s=lv?d:d.st;
+  if(state==='wait'){
+   if(s&&s.sid===sid&&s.s==='no'){cleanup('El equipo ha rechazado la petición.','er');return}
+   if(s&&s.sid===sid&&s.s==='ok')startMedia();
+   return}
+  if(s&&s.sid===sid&&(s.s==='stop'||s.s==='no')){cleanup('El equipo ha finalizado tu emisión.','wa');return}
+  if(state==='offered'&&d.answer&&d.answer.sid===sid&&!lastAns){lastAns=1;pc.setRemoteDescription({type:'answer',sdp:d.answer.sdp}).catch(function(){})}
+  if(pc&&pc.remoteDescription&&d.icB){Object.keys(d.icB).forEach(function(k){if(icSeen[k])return;var o=d.icB[k];if(!o||o.sid!==sid)return;icSeen[k]=1;pc.addIceCandidate(o.c).catch(function(){})})}
+ }).catch(function(){})}
+})();
+</script></body></html>
