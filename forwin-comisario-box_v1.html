@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forwin · Comisario box</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#0e1716;color:#e8f1ef;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:12px}
+main{max-width:640px;margin:0 auto}
+h1{font-size:20px;margin:0 0 8px;text-align:center}
+#st{text-align:center;font-size:13px;color:#9db3ae;margin:4px 0 10px;min-height:1.3em}#st.er{color:#ff6b6b;font-weight:800}
+#lg{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.t{display:flex;border-radius:12px;overflow:hidden;border:2px solid #fff;min-height:72px}
+.t div,.t button{display:flex;align-items:center;justify-content:center;font-weight:900;color:#fff;border:0;margin:0}
+.t .dn{flex:1.2;background:#000;font-size:32px;padding:0 4px;overflow:hidden}
+.t .sq{flex:1;font-size:15px}.t .sq.r{background:#d62828}.t .sq.v{background:#1f8f4e}.t .sq.x{background:#5b6b8a}
+.t .ls{flex:1.2;background:#26302e;font-size:15px;border-left:2px solid #fff;padding:0 4px;cursor:pointer}.t .ls.on{background:#1f5fbf}
+body.v .t .ls{cursor:default}
+#lgd{margin:14px 0 0;font-size:12px;line-height:1.4;color:#9db3ae}
+</style></head><body><main>
+<h1>🛠 Forwin · Comisario box</h1>
+<div id="st">Conectando…</div>
+<div id="lg"></div>
+<div id="lgd">Cada piloto lleva tres cuadros: su número (blanco sobre negro); ROJO mientras está en su box y VERDE cuando se aleja más de 20 m (GRIS: sin box fijado o sin señal GPS); y LISTO, que pulsa el comisario cuando ve al piloto equipado y preparado para arrancar. Con LISTO pulsado el cuadro central se mantiene en verde. LISTO se borra solo cuando el piloto toma la salida o empieza otra manga. Los datos llegan del panel cada 2 segundos.</div>
+</main>
+<script>
+(function(){
+'use strict';
+var q=new URLSearchParams(location.search),db=(q.get('d')||'').replace(/\/+$/,''),VO=q.get('v')==='1',
+ okDb=/^https:\/\/[a-z0-9-]+(-default-rtdb)?(\.[a-z0-9-]+)?\.(firebasedatabase\.app|firebaseio\.com)$/i.test(db),
+ $=function(s){return document.querySelector(s)},cur=null,lastOk=0,ov={};
+if(VO)document.body.className='v';
+function hm(t){var d=new Date(t),p=function(n){return String(n).padStart(2,'0')};return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds())}
+function paint(){var d=cur,age=d&&isFinite(+d.ts)?Date.now()-d.ts:null,stale=age===null||age>10000,g=$('#lg'),l=d&&Array.isArray(d.l)?d.l:[];
+ g.style.opacity=stale?'.35':'1';g.textContent='';
+ l.forEach(function(r){var on=ov[r.k]&&Date.now()-ov[r.k].t<4000?ov[r.k].on:!!r.l,
+  t=document.createElement('div'),a=document.createElement('div'),b=document.createElement('div'),c=document.createElement(VO?'div':'button');
+  t.className='t';a.className='dn';a.textContent=String(r.d);
+  b.className='sq '+(r.e==='r'||r.e==='v'?r.e:'x');b.textContent=r.e==='r'?'EN BOX':r.e==='v'?'FUERA':'SIN BOX';
+  c.className='ls'+(on?' on':'');c.textContent=on?'✔ LISTO':'LISTO';
+  if(!VO){c.type='button';c.onclick=function(){var n=!on;ov[r.k]={on:n,t:Date.now()};paint();
+   fetch(db+'/pl/'+encodeURIComponent(r.k)+'.json',{method:'PUT',body:JSON.stringify({on:n?1:0,ts:Date.now()})}).catch(function(){delete ov[r.k];paint()})}}
+  t.appendChild(a);t.appendChild(b);t.appendChild(c);g.appendChild(t)});
+ var s=$('#st');s.className=stale&&d?'er':'';
+ s.textContent=!d?(lastOk?'Sin datos del panel todavía':'Conectando…'):(stale?'SIN DATOS RECIENTES DEL PANEL · último a las '+hm(d.ts):(l.length?'':'Ningún inscrito · ')+'datos del panel a las '+hm(d.ts))}
+function poll(){fetch(db+'/pb.json',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){lastOk=Date.now();cur=d&&typeof d==='object'?d:null;paint()}).catch(function(){var s=$('#st');s.className='er';s.textContent='Sin conexión con la base de datos'+(lastOk?' · última lectura '+hm(lastOk):'');})}
+if(!okDb){$('#st').className='er';$('#st').textContent='Enlace no válido: falta la dirección de la base de datos (?d=…).'}
+else{poll();setInterval(poll,2000);setInterval(paint,1000)}
+})();
+</script></body></html>
